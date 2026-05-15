@@ -1956,3 +1956,18 @@
 - Android 开发包与发布包并存配置和构建验证已通过脚本追加到开发日志。
 - 前两条开发日志的 Facts 参数被 PowerShell 解析为逗号分隔的单条文本。
 - 本条记录补充说明前两条日志的格式问题，未改写既有开发日志内容。
+
+## 2026-05-15
+
+### 华为启动权限当前页面反查
+- 已通过 ADB 读取真机当前前台页面为 com.huawei.systemmanager/.appcontrol.activity.StartupAppControlActivity。
+- 当前任务栈显示该页面由 com.android.settings 启动，上级页面为 com.android.settings/.Settings$AppAndNotificationDashboardActivity，根页面为 com.android.settings/.HWSettings。
+- 当前页面 Activity 的 Intent action 为 com.android.settings.action.EXTRA_APP_SETTINGS，并携带显式组件 com.huawei.systemmanager/.appcontrol.activity.StartupAppControlActivity。
+- ADB 测试显示从外部显式启动该 Activity 会被系统拒绝，拒绝原因是需要 com.huawei.permission.external_app_settings.USE_COMPONENT；该权限属于华为系统侧权限，普通第三方应用不能作为稳定跳转依赖。
+- ADB 测试显示仅用 com.android.settings.action.EXTRA_APP_SETTINGS 和 com.huawei.systemmanager 包名无法解析到可直接启动的页面。
+
+### 华为启动入口位置与悬浮窗边界确认
+- 已通过 uiautomator dump 读取华为手机管家主页 UI 层级，应用启动管理入口节点 text 和 content-desc 均为“应用启动管理”，resource-id 为 com.huawei.systemmanager:id/entry_view_layout4。
+- 已确认当前测试设备上应用启动管理入口位于手机管家主页下方功能宫格第二行中间位置，节点 bounds 为 [427,2076][773,2388]。
+- 已确认悬浮窗权限只能在其他应用上方绘制提示，不能读取其他应用 UI 结构、文字、控件位置或当前页面状态。
+- 已确认若不使用无障碍权限，应用内无法在运行时动态获取华为手机管家页面中“应用启动管理”入口位置；只能采用打开手机管家主页加静态路径说明或机型经验提示。

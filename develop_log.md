@@ -2019,3 +2019,9 @@
 ### 调整自动同步版本记录分类
 - 已将版本记录中使用记录自动同步可靠性条目从优化分组调整为修复分组。
 - 已将该条版本记录描述改为修复应用后台关闭后可能无法按时触发自动同步的问题。
+
+### 发布版本 2.2.4 准备
+- 已将应用语义版本从 2.2.3 提升到 2.2.4。
+- 已将版本记录中的 Unreleased 节点固化为 2.2.4。
+- 已同步更新 package.json、package-lock.json、app.json、Android versionName、Expo runtimeVersion 和 developer_guide 中的当前版本说明。
+- 已完成 Android Release APK 构建并归档为 dist 下的 2.2.4 发布包。

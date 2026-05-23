@@ -12,6 +12,18 @@ const unavailableStatus = {
   canScheduleExactAlarms: false,
   exactAlarmPermissionGranted: false,
   canRevokeUsageAccessInApp: false,
+  lastRefreshAt: null,
+  lastRefreshReason: null,
+  lastRefreshPackageCount: null,
+  lastRefreshIntervalCount: null,
+  lastRefreshSelectedCount: null,
+  lastRefreshError: null,
+  nextRefreshAt: null,
+  lastScheduledAt: null,
+  lastAlarmReceivedAt: null,
+  lastAlarmReceivedMinute: null,
+  lastAlarmReceivedSlot: null,
+  missedRefreshAt: null,
 };
 
 export const getUsageAccessStatus = async () => {

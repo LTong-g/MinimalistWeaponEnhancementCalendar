@@ -433,7 +433,7 @@ const SettingsScreen = () => {
                 />
               </View>
               <Text style={styles.settingDescription}>
-                开启后应用会准备读取系统使用记录，并安排每天 23:55 至 23:59 同步使用记录。
+                开启后应用会准备读取系统使用记录，并安排每天 00:00 和 05:00 通过短时系统通知同步使用记录。
               </Text>
               {!usageAccessAvailable && (
                 <Text style={styles.warningText}>
@@ -456,7 +456,7 @@ const SettingsScreen = () => {
                       <View style={styles.permissionSwitchTextBlock}>
                         <Text style={styles.permissionSwitchTitle}>忽略电池优化</Text>
                         <Text style={styles.permissionSwitchDescription}>
-                          提高晚间刷新使用记录的稳定性
+                          提高自动刷新使用记录的稳定性
                         </Text>
                       </View>
                       <DisplaySwitchButton
@@ -470,7 +470,7 @@ const SettingsScreen = () => {
                       <View style={styles.permissionSwitchTextBlock}>
                         <Text style={styles.permissionSwitchTitle}>精确定时权限</Text>
                         <Text style={styles.permissionSwitchDescription}>
-                          支持 23:55 至 23:59 的定时同步
+                          支持 00:00 和 05:00 的定时同步
                         </Text>
                       </View>
                       <DisplaySwitchButton

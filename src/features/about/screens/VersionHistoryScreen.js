@@ -9,6 +9,19 @@ import { useNavigation } from '@react-navigation/native';
 
 const versionHistory = [
   {
+    version: 'Unreleased',
+    title: '使用记录辅助可靠性修复',
+    date: '2026-05-22',
+    sections: [
+      {
+        label: '修复：',
+        notes: [
+          '修复使用记录自动同步在应用后台关闭后可能无法按时触发的问题；应用启动、系统权限刷新、开机和应用更新后会重新确认同步计划，并通过短时系统通知提高后台触发可靠性。',
+        ],
+      },
+    ],
+  },
+  {
     version: '2.2.3',
     title: '更新包下载与管理优化',
     date: '2026-05-11',

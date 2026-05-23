@@ -49,6 +49,9 @@ class MainApplication : Application(), ReactApplication {
       // If you opted-in for the New Architecture, we load the native entry point for this app.
       load()
     }
+    if (UsageAccessScheduler.isEnabled(this)) {
+      UsageAccessScheduler.scheduleDailyRefresh(this)
+    }
     ApplicationLifecycleDispatcher.onApplicationCreate(this)
   }
 

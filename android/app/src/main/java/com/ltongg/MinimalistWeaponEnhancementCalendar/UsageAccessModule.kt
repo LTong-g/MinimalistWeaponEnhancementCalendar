@@ -257,6 +257,7 @@ class UsageAccessModule(
   }
 
   private fun buildStatus(): WritableMap {
+    val storedStatus = UsageAccessScheduler.buildStoredStatus(reactContext)
     val map = Arguments.createMap()
     map.putBoolean("featureEnabled", UsageAccessScheduler.isEnabled(reactContext))
     map.putBoolean("usageAccessGranted", hasUsageAccess())
@@ -264,7 +265,43 @@ class UsageAccessModule(
     map.putBoolean("canScheduleExactAlarms", canScheduleExactAlarms())
     map.putBoolean("exactAlarmPermissionGranted", hasExactAlarmPermission())
     map.putBoolean("canRevokeUsageAccessInApp", false)
+    putNullableDouble(map, "lastRefreshAt", storedStatus.lastRefreshAt)
+    putNullableString(map, "lastRefreshReason", storedStatus.lastRefreshReason)
+    putNullableInt(map, "lastRefreshPackageCount", storedStatus.lastRefreshPackageCount)
+    putNullableInt(map, "lastRefreshIntervalCount", storedStatus.lastRefreshIntervalCount)
+    putNullableInt(map, "lastRefreshSelectedCount", storedStatus.lastRefreshSelectedCount)
+    putNullableString(map, "lastRefreshError", storedStatus.lastRefreshError)
+    putNullableDouble(map, "nextRefreshAt", storedStatus.nextRefreshAt)
+    putNullableDouble(map, "lastScheduledAt", storedStatus.lastScheduledAt)
+    putNullableDouble(map, "lastAlarmReceivedAt", storedStatus.lastAlarmReceivedAt)
+    putNullableInt(map, "lastAlarmReceivedMinute", storedStatus.lastAlarmReceivedMinute)
+    putNullableString(map, "lastAlarmReceivedSlot", storedStatus.lastAlarmReceivedSlot)
+    putNullableDouble(map, "missedRefreshAt", storedStatus.missedRefreshAt)
     return map
+  }
+
+  private fun putNullableDouble(map: WritableMap, key: String, value: Long?) {
+    if (value == null) {
+      map.putNull(key)
+    } else {
+      map.putDouble(key, value.toDouble())
+    }
+  }
+
+  private fun putNullableInt(map: WritableMap, key: String, value: Int?) {
+    if (value == null) {
+      map.putNull(key)
+    } else {
+      map.putInt(key, value)
+    }
+  }
+
+  private fun putNullableString(map: WritableMap, key: String, value: String?) {
+    if (value == null) {
+      map.putNull(key)
+    } else {
+      map.putString(key, value)
+    }
   }
 
   private fun hasUsageAccess(): Boolean {

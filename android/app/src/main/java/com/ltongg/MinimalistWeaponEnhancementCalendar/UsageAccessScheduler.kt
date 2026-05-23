@@ -17,6 +17,11 @@ import java.util.Calendar
 
 object UsageAccessScheduler {
   private const val REQUEST_CODE_BASE = 235500
+  private val REFRESH_SLOTS = listOf(
+    RefreshSlot(hour = 0, minute = 0),
+    RefreshSlot(hour = 5, minute = 0)
+  )
+  private val LEGACY_REFRESH_MINUTES = 55..59
   private const val PREF_NAME = "usage_access_feature"
   private const val KEY_ENABLED = "enabled"
   private const val KEY_LAST_REFRESH_AT = "last_refresh_at"
@@ -25,6 +30,12 @@ object UsageAccessScheduler {
   private const val KEY_LAST_REFRESH_INTERVAL_COUNT = "last_refresh_interval_count"
   private const val KEY_LAST_REFRESH_SELECTED_COUNT = "last_refresh_selected_count"
   private const val KEY_LAST_REFRESH_ERROR = "last_refresh_error"
+  private const val KEY_NEXT_REFRESH_AT = "next_refresh_at"
+  private const val KEY_LAST_SCHEDULED_AT = "last_scheduled_at"
+  private const val KEY_LAST_ALARM_RECEIVED_AT = "last_alarm_received_at"
+  private const val KEY_LAST_ALARM_RECEIVED_MINUTE = "last_alarm_received_minute"
+  private const val KEY_LAST_ALARM_RECEIVED_SLOT = "last_alarm_received_slot"
+  private const val KEY_MISSED_REFRESH_AT = "missed_refresh_at"
   private const val BLACKLIST_DATA_KEY = "app_data_blacklist"
   private const val BLACKLIST_SCHEMA_VERSION = 3
   private const val LEGACY_BLACKLIST_KEY = "experimental_usage_blacklist"
@@ -69,9 +80,19 @@ object UsageAccessScheduler {
     if (!isEnabled(context)) return
 
     val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-    for (minute in 55..59) {
-      val triggerAt = nextTriggerTime(minute)
-      val pendingIntent = createPendingIntent(context, minute)
+    cancelLegacyRefreshAlarms(context, alarmManager)
+    var nextRefreshAt: Long? = null
+    for (slot in REFRESH_SLOTS) {
+      val triggerAt = nextTriggerTime(slot)
+      val currentNextRefreshAt = nextRefreshAt
+      nextRefreshAt = if (currentNextRefreshAt == null) {
+        triggerAt
+      } else {
+        minOf(currentNextRefreshAt, triggerAt)
+      }
+      cancelPendingIntent(alarmManager, buildPendingIntent(context, slot, PendingIntent.FLAG_NO_CREATE))
+      cancelPendingIntent(alarmManager, buildReceiverPendingIntent(context, slot, PendingIntent.FLAG_NO_CREATE))
+      val pendingIntent = createPendingIntent(context, slot)
       try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && alarmManager.canScheduleExactAlarms()) {
           alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
@@ -84,21 +105,67 @@ object UsageAccessScheduler {
         alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
       }
     }
+    context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+      .edit()
+      .putLong(KEY_LAST_SCHEDULED_AT, System.currentTimeMillis())
+      .apply {
+        if (nextRefreshAt == null) {
+          remove(KEY_NEXT_REFRESH_AT)
+        } else {
+          putLong(KEY_NEXT_REFRESH_AT, nextRefreshAt)
+        }
+      }
+      .apply()
   }
 
   fun cancelDailyRefresh(context: Context) {
     val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-    for (minute in 55..59) {
+    for (slot in REFRESH_SLOTS) {
       val pendingIntent = buildPendingIntent(
         context,
-        minute,
+        slot,
         PendingIntent.FLAG_NO_CREATE
       )
-      if (pendingIntent != null) {
-        alarmManager.cancel(pendingIntent)
-        pendingIntent.cancel()
-      }
+      cancelPendingIntent(alarmManager, pendingIntent)
+      cancelPendingIntent(alarmManager, buildReceiverPendingIntent(context, slot, PendingIntent.FLAG_NO_CREATE))
     }
+    cancelLegacyRefreshAlarms(context, alarmManager)
+  }
+
+  private fun cancelPendingIntent(alarmManager: AlarmManager, pendingIntent: PendingIntent?) {
+    if (pendingIntent != null) {
+      alarmManager.cancel(pendingIntent)
+      pendingIntent.cancel()
+    }
+  }
+
+  fun markAlarmReceived(context: Context, slotLabel: String, minute: Int) {
+    context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+      .edit()
+      .putLong(KEY_LAST_ALARM_RECEIVED_AT, System.currentTimeMillis())
+      .putInt(KEY_LAST_ALARM_RECEIVED_MINUTE, minute)
+      .putString(KEY_LAST_ALARM_RECEIVED_SLOT, slotLabel)
+      .apply()
+  }
+
+  fun alarmSlotLabelFromIntent(intent: Intent?): String {
+    val slotLabel = intent?.getStringExtra("slotLabel")?.trim().orEmpty()
+    if (slotLabel.isNotEmpty()) return slotLabel
+
+    val legacyMinute = intent?.getIntExtra("minute", -1) ?: -1
+    return if (legacyMinute >= 0) {
+      "legacy_23_${legacyMinute.toString().padStart(2, '0')}"
+    } else {
+      "unknown"
+    }
+  }
+
+  fun alarmMinuteFromIntent(intent: Intent?): Int {
+    return intent?.getIntExtra("minute", -1) ?: -1
+  }
+
+  fun refreshReasonForSlot(slotLabel: String): String {
+    return "daily_${slotLabel.replace(":", "_")}"
   }
 
   fun refreshUsageStats(context: Context, reason: String): RefreshResult {
@@ -211,12 +278,17 @@ object UsageAccessScheduler {
     }
     context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
       .edit()
+      .remove(KEY_NEXT_REFRESH_AT)
       .remove(KEY_LAST_REFRESH_AT)
       .remove(KEY_LAST_REFRESH_REASON)
       .remove(KEY_LAST_REFRESH_PACKAGE_COUNT)
       .remove(KEY_LAST_REFRESH_INTERVAL_COUNT)
       .remove(KEY_LAST_REFRESH_SELECTED_COUNT)
       .remove(KEY_LAST_REFRESH_ERROR)
+      .remove(KEY_LAST_ALARM_RECEIVED_AT)
+      .remove(KEY_LAST_ALARM_RECEIVED_MINUTE)
+      .remove(KEY_LAST_ALARM_RECEIVED_SLOT)
+      .remove(KEY_MISSED_REFRESH_AT)
       .apply()
   }
 
@@ -806,10 +878,10 @@ object UsageAccessScheduler {
     )
   }
 
-  private fun nextTriggerTime(minute: Int): Long {
+  private fun nextTriggerTime(slot: RefreshSlot): Long {
     val calendar = Calendar.getInstance()
-    calendar.set(Calendar.HOUR_OF_DAY, 23)
-    calendar.set(Calendar.MINUTE, minute)
+    calendar.set(Calendar.HOUR_OF_DAY, slot.hour)
+    calendar.set(Calendar.MINUTE, slot.minute)
     calendar.set(Calendar.SECOND, 0)
     calendar.set(Calendar.MILLISECOND, 0)
 
@@ -820,7 +892,155 @@ object UsageAccessScheduler {
     return calendar.timeInMillis
   }
 
+  fun buildStoredStatus(context: Context): StoredStatus {
+    val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+    detectMissedRefresh(prefs, System.currentTimeMillis())
+    if (isEnabled(context)) {
+      scheduleDailyRefresh(context)
+    }
+
+    return StoredStatus(
+      lastRefreshAt = prefs.longOrNull(KEY_LAST_REFRESH_AT),
+      lastRefreshReason = prefs.getString(KEY_LAST_REFRESH_REASON, null),
+      lastRefreshPackageCount = prefs.intOrNull(KEY_LAST_REFRESH_PACKAGE_COUNT),
+      lastRefreshIntervalCount = prefs.intOrNull(KEY_LAST_REFRESH_INTERVAL_COUNT),
+      lastRefreshSelectedCount = prefs.intOrNull(KEY_LAST_REFRESH_SELECTED_COUNT),
+      lastRefreshError = prefs.getString(KEY_LAST_REFRESH_ERROR, null),
+      nextRefreshAt = prefs.longOrNull(KEY_NEXT_REFRESH_AT),
+      lastScheduledAt = prefs.longOrNull(KEY_LAST_SCHEDULED_AT),
+      lastAlarmReceivedAt = prefs.longOrNull(KEY_LAST_ALARM_RECEIVED_AT),
+      lastAlarmReceivedMinute = prefs.intOrNull(KEY_LAST_ALARM_RECEIVED_MINUTE),
+      lastAlarmReceivedSlot = prefs.getString(KEY_LAST_ALARM_RECEIVED_SLOT, null),
+      missedRefreshAt = prefs.longOrNull(KEY_MISSED_REFRESH_AT)
+    )
+  }
+
+  private fun detectMissedRefresh(
+    prefs: android.content.SharedPreferences,
+    now: Long
+  ) {
+    val expectedAt = prefs.longOrNull(KEY_NEXT_REFRESH_AT) ?: return
+    val lastRefreshAt = prefs.longOrNull(KEY_LAST_REFRESH_AT) ?: 0L
+    val lastAlarmReceivedAt = prefs.longOrNull(KEY_LAST_ALARM_RECEIVED_AT) ?: 0L
+    val latestObservedAt = maxOf(lastRefreshAt, lastAlarmReceivedAt)
+    val refreshWindowMs = 10 * 60 * 1000L
+    if (now > expectedAt + refreshWindowMs && latestObservedAt < expectedAt) {
+      prefs.edit()
+        .putLong(KEY_MISSED_REFRESH_AT, expectedAt)
+        .apply()
+    }
+  }
+
+  private fun android.content.SharedPreferences.longOrNull(key: String): Long? {
+    return if (contains(key)) getLong(key, 0L) else null
+  }
+
+  private fun android.content.SharedPreferences.intOrNull(key: String): Int? {
+    return if (contains(key)) getInt(key, 0) else null
+  }
+
   private fun buildPendingIntent(
+    context: Context,
+    slot: RefreshSlot,
+    flags: Int
+  ): PendingIntent? {
+    val intent = Intent(context, UsageAccessRefreshService::class.java).apply {
+      action = "${context.packageName}.USAGE_ACCESS_REFRESH"
+      putExtra("hour", slot.hour)
+      putExtra("minute", slot.minute)
+      putExtra("slotLabel", slot.label)
+    }
+    val immutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+      PendingIntent.FLAG_IMMUTABLE
+    } else {
+      0
+    }
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      PendingIntent.getForegroundService(
+        context,
+        REQUEST_CODE_BASE + slot.id,
+        intent,
+        flags or immutableFlag
+      )
+    } else {
+      PendingIntent.getService(
+        context,
+        REQUEST_CODE_BASE + slot.id,
+        intent,
+        flags or immutableFlag
+      )
+    }
+  }
+
+  private fun buildReceiverPendingIntent(
+    context: Context,
+    slot: RefreshSlot,
+    flags: Int
+  ): PendingIntent? {
+    val intent = Intent(context, UsageAccessRefreshReceiver::class.java).apply {
+      action = "${context.packageName}.USAGE_ACCESS_REFRESH"
+      putExtra("hour", slot.hour)
+      putExtra("minute", slot.minute)
+      putExtra("slotLabel", slot.label)
+    }
+    val immutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+      PendingIntent.FLAG_IMMUTABLE
+    } else {
+      0
+    }
+    return PendingIntent.getBroadcast(context, REQUEST_CODE_BASE + slot.id, intent, flags or immutableFlag)
+  }
+
+  private fun createPendingIntent(context: Context, slot: RefreshSlot): PendingIntent {
+    return buildPendingIntent(context, slot, PendingIntent.FLAG_UPDATE_CURRENT)
+      ?: throw IllegalStateException("Failed to create pending intent for ${slot.label}")
+  }
+
+  private fun cancelLegacyRefreshAlarms(context: Context, alarmManager: AlarmManager) {
+    for (minute in LEGACY_REFRESH_MINUTES) {
+      cancelPendingIntent(
+        alarmManager,
+        buildLegacyServicePendingIntent(context, minute, PendingIntent.FLAG_NO_CREATE)
+      )
+      cancelPendingIntent(
+        alarmManager,
+        buildLegacyReceiverPendingIntent(context, minute, PendingIntent.FLAG_NO_CREATE)
+      )
+    }
+  }
+
+  private fun buildLegacyServicePendingIntent(
+    context: Context,
+    minute: Int,
+    flags: Int
+  ): PendingIntent? {
+    val intent = Intent(context, UsageAccessRefreshService::class.java).apply {
+      action = "${context.packageName}.USAGE_ACCESS_REFRESH"
+      putExtra("minute", minute)
+    }
+    val immutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+      PendingIntent.FLAG_IMMUTABLE
+    } else {
+      0
+    }
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      PendingIntent.getForegroundService(
+        context,
+        REQUEST_CODE_BASE + minute,
+        intent,
+        flags or immutableFlag
+      )
+    } else {
+      PendingIntent.getService(
+        context,
+        REQUEST_CODE_BASE + minute,
+        intent,
+        flags or immutableFlag
+      )
+    }
+  }
+
+  private fun buildLegacyReceiverPendingIntent(
     context: Context,
     minute: Int,
     flags: Int
@@ -834,17 +1054,15 @@ object UsageAccessScheduler {
     } else {
       0
     }
-    return PendingIntent.getBroadcast(
-      context,
-      REQUEST_CODE_BASE + minute,
-      intent,
-      flags or immutableFlag
-    )
+    return PendingIntent.getBroadcast(context, REQUEST_CODE_BASE + minute, intent, flags or immutableFlag)
   }
 
-  private fun createPendingIntent(context: Context, minute: Int): PendingIntent {
-    return buildPendingIntent(context, minute, PendingIntent.FLAG_UPDATE_CURRENT)
-      ?: throw IllegalStateException("Failed to create pending intent for minute $minute")
+  private data class RefreshSlot(
+    val hour: Int,
+    val minute: Int
+  ) {
+    val id: Int = hour * 100 + minute
+    val label: String = "${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}"
   }
 
   private data class UsageInterval(
@@ -872,4 +1090,19 @@ object UsageAccessScheduler {
       return startAt < endTime && endTimeOrMax() > beginTime
     }
   }
+
+  data class StoredStatus(
+    val lastRefreshAt: Long?,
+    val lastRefreshReason: String?,
+    val lastRefreshPackageCount: Int?,
+    val lastRefreshIntervalCount: Int?,
+    val lastRefreshSelectedCount: Int?,
+    val lastRefreshError: String?,
+    val nextRefreshAt: Long?,
+    val lastScheduledAt: Long?,
+    val lastAlarmReceivedAt: Long?,
+    val lastAlarmReceivedMinute: Int?,
+    val lastAlarmReceivedSlot: String?,
+    val missedRefreshAt: Long?
+  )
 }
